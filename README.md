@@ -17,7 +17,7 @@ The bridge receives WhatsApp text messages and images, forwards them to Open Ass
 
 For installation, dependencies, configuration and running the bridge as a Linux service, see:
 
-**[INSTALL.md](INSTALL.md)**
+**[INSTALL.MD](INSTALL.MD)**
 
 ## How it works
 
