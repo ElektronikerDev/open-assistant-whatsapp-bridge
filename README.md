@@ -1,6 +1,6 @@
 # Open Assistant WhatsApp Bridge
 
-Simple bridge between **WhatsApp** and **Open Assistant**.
+Simple bridge between **WhatsApp** and **[Open Assistant](https://open-assistant.org/)**.
 
 The bridge receives WhatsApp text messages and images, forwards them to Open Assistant and sends the response back to WhatsApp.
 
