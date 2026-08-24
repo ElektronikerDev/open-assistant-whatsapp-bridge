@@ -2,6 +2,8 @@
 
 This guide installs the Open Assistant WhatsApp Bridge on a Debian/Ubuntu Linux server and runs it as a `systemd` service.
 
+The bridge connects to WhatsApp through **WhatsApp Web / Neonize**. On the first start, a **QR code is displayed directly in the console**. Scan this QR code with WhatsApp to pair the server. No Meta Developer webhook or WhatsApp Cloud API credentials are required.
+
 ## 1. Install dependencies
 
 ```bash
@@ -32,46 +34,70 @@ pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-## 4. Configure the bridge
+## 4. Initial configuration
 
-Create the environment file:
+Run the interactive setup once:
 
 ```bash
-nano .env
+python3 whatsapp_openassistant_bridge.py --init
 ```
 
-Example:
+The setup asks for:
+
+- the allowed WhatsApp number, without `+`
+- the Open Assistant chat URL
+- the Open Assistant upload URL
+- an optional Open Assistant bearer token
+- the Open Assistant channel
+
+The configuration is stored in `.env` with restricted permissions.
+
+Example values:
 
 ```env
-WHATSAPP_ACCESS_TOKEN=
-WHATSAPP_PHONE_NUMBER_ID=
-WHATSAPP_VERIFY_TOKEN=
-META_APP_SECRET=
+ALLOWED_WHATSAPP_NUMBER=491234567890
+OPENASSISTANT_URL=http://127.0.0.1:8080/api/chat/stream
+OPENASSISTANT_UPLOAD_URL=http://127.0.0.1:8080/api/upload
+OPENASSISTANT_TOKEN=
+OPENASSISTANT_CHANNEL=whatsapp
 
-OPEN_ASSISTANT_URL=
-OPEN_ASSISTANT_API_KEY=
-
-PORT=3000
+HOST=127.0.0.1
+PORT=8081
 ```
 
-Fill in your WhatsApp and Open Assistant credentials.
+The setup also creates a random `BRIDGE_TOKEN` if none exists yet.
 
-Protect the file:
+## 5. First start and WhatsApp QR pairing
 
-```bash
-chmod 600 .env
-```
-
-## 5. Test the application
-
-Start the bridge manually first:
+Start the bridge manually before creating the service:
 
 ```bash
 source .venv/bin/activate
-python3 main.py
+python3 whatsapp_openassistant_bridge.py
 ```
 
-If the application starts correctly, stop it with:
+If no saved WhatsApp session exists yet, the bridge starts QR pairing and prints a QR code directly in the terminal.
+
+![WhatsApp QR code shown in the console](https://image.cod3.eu/f2bZuRRTKS)
+
+On your phone, open WhatsApp and go to:
+
+**Settings → Linked devices → Link a device**
+
+Then scan the QR code shown in the terminal.
+
+After a successful connection, the bridge prints information similar to:
+
+```text
+✓ WhatsApp connected
+✓ Allowed number: ...
+✓ Open Assistant: ...
+✓ Upload API: ...
+```
+
+The WhatsApp session is stored in the configured database and reused on later starts. A new QR code is therefore normally only required when no stored session exists or the WhatsApp session has been invalidated.
+
+Stop the manual test with:
 
 ```text
 Ctrl+C
@@ -79,7 +105,7 @@ Ctrl+C
 
 ## 6. Create a systemd service
 
-Create:
+Create the service file:
 
 ```bash
 sudo nano /etc/systemd/system/open-assistant-whatsapp.service
@@ -99,7 +125,7 @@ User=www-data
 Group=www-data
 WorkingDirectory=/opt/open-assistant-whatsapp-bridge
 EnvironmentFile=/opt/open-assistant-whatsapp-bridge/.env
-ExecStart=/opt/open-assistant-whatsapp-bridge/.venv/bin/python /opt/open-assistant-whatsapp-bridge/main.py
+ExecStart=/opt/open-assistant-whatsapp-bridge/.venv/bin/python /opt/open-assistant-whatsapp-bridge/whatsapp_openassistant_bridge.py
 Restart=on-failure
 RestartSec=5
 
@@ -107,7 +133,7 @@ RestartSec=5
 WantedBy=multi-user.target
 ```
 
-Set ownership:
+Give the service user access to the application directory, including the WhatsApp session database:
 
 ```bash
 sudo chown -R www-data:www-data /opt/open-assistant-whatsapp-bridge
@@ -131,13 +157,15 @@ Start it:
 sudo systemctl start open-assistant-whatsapp
 ```
 
-## 7. Check status
+## 7. Check status and logs
+
+Check the service status:
 
 ```bash
 sudo systemctl status open-assistant-whatsapp
 ```
 
-View logs:
+Follow the logs:
 
 ```bash
 sudo journalctl -u open-assistant-whatsapp -f
@@ -149,21 +177,36 @@ Restart after configuration changes:
 sudo systemctl restart open-assistant-whatsapp
 ```
 
-## 8. Configure WhatsApp webhook
+## 8. Bridge HTTP API
 
-In the Meta Developer Dashboard configure the webhook URL:
+The bridge also starts a small HTTP server. By default it listens on:
 
 ```text
-https://your-domain.example/webhook
+127.0.0.1:8081
 ```
 
-Use the same verification token configured in:
+Health check:
 
-```env
-WHATSAPP_VERIFY_TOKEN=
+```bash
+curl http://127.0.0.1:8081/health
 ```
 
-Subscribe the webhook to WhatsApp message events.
+The `/send` endpoint can be used to send a WhatsApp message through the paired session. If `BRIDGE_TOKEN` is configured, authenticate with:
+
+```text
+Authorization: Bearer YOUR_BRIDGE_TOKEN
+```
+
+By default, sending is restricted to `ALLOWED_WHATSAPP_NUMBER` unless `ALLOW_SEND_TO_ANY=true` is explicitly configured.
+
+## 9. Conversation behavior
+
+The bridge keeps a conversation ID for the current day.
+
+- `/clear` starts a new conversation.
+- A new day automatically starts a new conversation.
+- Incoming group messages are ignored by default.
+- Images are stored only temporarily and deleted locally after processing.
 
 ## Update
 
@@ -174,4 +217,11 @@ cd /opt/open-assistant-whatsapp-bridge
 sudo -u www-data git pull
 sudo -u www-data .venv/bin/pip install -r requirements.txt
 sudo systemctl restart open-assistant-whatsapp
+```
+
+If an update changes the setup variables, run the interactive setup again if needed:
+
+```bash
+sudo -u www-data /opt/open-assistant-whatsapp-bridge/.venv/bin/python \
+  /opt/open-assistant-whatsapp-bridge/whatsapp_openassistant_bridge.py --init
 ```
